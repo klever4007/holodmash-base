@@ -75,7 +75,7 @@ with tab1:
         notes = st.text_area("📝 Важные рабочие заметки", placeholder="Комментарии...")
         
         st.markdown("**📸 Скриншот переписки (Ctrl+V или файл)**")
-        uploaded_file = st.image_uploader("", label_visibility="collapsed")
+        uploaded_file = st.file_uploader("", label_visibility="collapsed", type=["jpg", "jpeg", "png"])
 
     if st.button("🚀 Сохранить в базу"):
         if not fio:
@@ -127,17 +127,17 @@ with tab2:
         st.markdown("---")
 
     for rec in records:
-        with st.expander(f"📋 {rec} | {rec} ({rec})"):
+        with st.expander(f"📋 {rec[1]} | {rec[3]} ({rec[2]})"):
             c1, c2 = st.columns(2)
             with c1:
-                st.markdown(f"**📅 Дата внесения:** {rec}")
-                st.markdown(f"**✉️ Электронная почта:** {rec}")
-                st.markdown(f"**🎯 Техническая потребность:**\n{rec}")
-                st.markdown(f"**📝 Рабочие заметки:**\n{rec}")
+                st.markdown(f"**📅 Дата внесения:** {rec[0]}")
+                st.markdown(f"**✉️ Электронная почта:** {rec[4]}")
+                st.markdown(f"**🎯 Техническая потребность:**\n{rec[5]}")
+                st.markdown(f"**📝 Рабочие заметки:**\n{rec[6]}")
             with c2:
-                if rec and rec != "-":
+                if rec[7] and rec[7] != "-":
                     st.markdown("**📸 Скриншот переписки:**")
-                    st.image(rec, use_container_width=True)
+                    st.image(rec[7], use_container_width=True)
                 else:
                     st.caption("ℹ️ Скриншот не прикреплялся")
 
