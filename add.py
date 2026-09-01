@@ -1,5 +1,6 @@
 import os
 import base64
+import psycopg2
 from datetime import datetime
 import streamlit as st
 import pandas as pd
@@ -38,11 +39,20 @@ st.markdown("""
 st.title("❄️ ХОЛОДМАШ | Единая база клиентов")
 st.caption("Профессиональный инструмент управления контрагентами по направлениям. Синхронизация 24/7.")
 
-# Подключение к облачной базе Supabase через Streamlit Secrets
-try:
-    conn = st.connection("postgres", type="sql")
-except Exception as e:
-    st.error(f"Ошибка подключения к Supabase: {e}")
+# Подключение к Supabase через Secrets URI
+@st.cache_resource
+def get_connection():
+    try:
+        # Берём шифрованную строку из Advanced settings -> Secrets
+        conn_uri = st.secrets["postgres"]["uri"]
+        return psycopg2.connect(conn_uri)
+    except Exception as e:
+        st.error(f"Ошибка подключения к базе Supabase: {e}")
+        return None
+
+conn = get_connection()
+
+if conn is None:
     st.stop()
 
 tab1, tab2 = st.tabs(["➕ Внести нового клиента", "🔍 Поиск по направлениям"])
@@ -80,18 +90,18 @@ with tab1:
 
             now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
             
-            # Запись в Supabase (PostgreSQL использует синтаксис :имя_переменной)
-            with conn.session as session:
-                query = """
-                    INSERT INTO contacts (fio, city, company, email, need, notes, image_url, created_at, category)
-                    VALUES (:fio, :city, :company, :email, :need, :notes, :image_url, :created_at, :category)
-                """
-                session.execute(
-                    query, 
-                    dict(fio=fio, city=city, company=company, email=email, need=need, notes=notes, image_url=image_data_url, created_at=now_str, category=category)
-                )
-                session.commit()
-            st.success(f"✔️ Клиент '{fio}' успешно добавлен в направление '{category}'!")
+            try:
+                with conn.cursor() as cursor:
+                    query = """
+                        INSERT INTO contacts (fio, city, company, email, need, notes, image_url, created_at, category)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    """
+                    cursor.execute(query, (fio, city, company, email, need, notes, image_data_url, now_str, category))
+                    conn.commit()
+                st.success(f"✔️ Клиент '{fio}' успешно добавлен в направление '{category}'!")
+            except Exception as e:
+                st.error(f"Ошибка при сохранении: {e}")
+                conn.rollback()
 
 with tab2:
     st.subheader("Глобальный архив с фильтрацией")
@@ -100,61 +110,64 @@ with tab2:
     
     for i, cat in enumerate(CATEGORIES):
         with sub_tabs[i]:
-            # Поиск в Supabase
-            if search:
-                query = """
-                    SELECT created_at, fio, city, company, email, need, notes, image_url 
-                    FROM contacts 
-                    WHERE (category = :cat OR (category IS NULL AND :cat = 'Другое')) 
-                      AND (fio ILIKE :search OR city ILIKE :search OR company ILIKE :search)
-                    ORDER BY id DESC LIMIT 1000
-                """
-                df = conn.query(query, params=dict(cat=cat, search=f"%{search}%"))
-            else:
-                query = """
-                    SELECT created_at, fio, city, company, email, need, notes, image_url 
-                    FROM contacts 
-                    WHERE category = :cat OR (category IS NULL AND :cat = 'Другое')
-                    ORDER BY id DESC LIMIT 500
-                """
-                df = conn.query(query, params=dict(cat=cat))
-            
-            if not df.empty:
-                # Подготовка Excel версии (удаляем тяжелую графику)
-                df_excel = df.drop(columns=["image_url"], errors="ignore")
-                csv = df_excel.to_csv(index=False).encode('utf-8-sig')
-                
-                st.download_button(
-                    label=f"📥 Скачать список '{cat}' в Excel",
-                    data=csv,
-                    file_name=f"baza_{cat}.csv",
-                    mime="text/csv",
-                    key=f"dl_{i}"
-                )
-                st.markdown("---")
-                
-                # Построчный вывод карточек через итерацию DataFrame
-                for _, row in df.iterrows():
-                    c_fio = row.get('fio')
-                    c_company = row.get('company')
-                    c_city = row.get('city')
+            try:
+                with conn.cursor() as cursor:
+                    if search:
+                        query = """
+                            SELECT created_at, fio, city, company, email, need, notes, image_url 
+                            FROM contacts 
+                            WHERE (category = %s OR (category IS NULL AND %s = 'Другое')) 
+                              AND (fio ILIKE %s OR city ILIKE %s OR company ILIKE %s)
+                            ORDER BY id DESC LIMIT 1000
+                        """
+                        search_param = f"%{search}%"
+                        cursor.execute(query, (cat, cat, search_param, search_param, search_param))
+                    else:
+                        query = """
+                            SELECT created_at, fio, city, company, email, need, notes, image_url 
+                            FROM contacts 
+                            WHERE category = %s OR (category IS NULL AND %s = 'Другое')
+                            ORDER BY id DESC LIMIT 500
+                        """
+                        cursor.execute(query, (cat, cat))
                     
-                    with st.expander(f"📋 {c_fio or 'Без имени'} | {c_company or 'Без компании'} ({c_city or 'Город не указан'})"):
-                        c1, c2 = st.columns(2)
-                        with c1:
-                            st.markdown(f"**📅 Дата внесения:** {row.get('created_at')}")
-                            st.markdown(f"**✉️ Электронная почта:** {row.get('email') or '—'}")
-                            st.markdown(f"**🎯 Техническая потребность:**\n{row.get('need') or '—'}")
-                            st.markdown(f"**📝 Рабочие заметки:**\n{row.get('notes') or '—'}")
-                        with c2:
-                            c_image = row.get('image_url')
-                            if isinstance(c_image, str) and c_image.startswith("data:image"):
-                                st.markdown("**📸 Скриншот переписки:**")
-                                try:
-                                    st.image(c_image, use_container_width=True)
-                                except Exception:
-                                    st.caption("⚠️ Ошибка отображения скриншота")
-                            else:
-                                st.caption("ℹ️ Скриншот отсутствует")
-            else:
-                st.info(f"В направлении '{cat}' пока нет записей.")
+                    records = cursor.fetchall()
+                
+                if records:
+                    df = pd.DataFrame(records, columns=["Дата", "ФИО", "Город", "Компания", "Email", "Потребность", "Заметки", "Картинка"])
+                    df_excel = df.drop(columns=["Картинка"], errors="ignore")
+                    csv = df_excel.to_csv(index=False).encode('utf-8-sig')
+                    
+                    st.download_button(
+                        label=f"📥 Скачать список '{cat}' в Excel",
+                        data=csv,
+                        file_name=f"baza_{cat}.csv",
+                        mime="text/csv",
+                        key=f"dl_{i}"
+                    )
+                    st.markdown("---")
+                    
+                    for rec in records:
+                        c_date, c_fio, c_city, c_company, c_email, c_need, c_notes, c_image = rec
+                        
+                        with st.expander(f"📋 {c_fio or 'Без имени'} | {c_company or 'Без компании'} ({c_city or 'Город не указан'})"):
+                            c1, c2 = st.columns(2)
+                            with c1:
+                                st.markdown(f"**📅 Дата внесения:** {c_date}")
+                                st.markdown(f"**✉️ Электронная почта:** {c_email or '—'}")
+                                st.markdown(f"**🎯 Техническая потребность:**\n{c_need or '—'}")
+                                st.markdown(f"**📝 Рабочие заметки:**\n{c_notes or '—'}")
+                            with c2:
+                                if isinstance(c_image, str) and c_image.startswith("data:image"):
+                                    st.markdown("**📸 Скриншот переписки:**")
+                                    try:
+                                        st.image(c_image, use_container_width=True)
+                                    except Exception:
+                                        st.caption("⚠️ Ошибка отображения скриншота")
+                                else:
+                                    st.caption("ℹ️ Скриншот отсутствует")
+                else:
+                    st.info(f"В направлении '{cat}' пока нет записей.")
+            except Exception as e:
+                st.error(f"Ошибка при получении данных: {e}")
+                conn.rollback()
