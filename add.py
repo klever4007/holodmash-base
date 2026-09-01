@@ -23,7 +23,7 @@ def init_db():
     return conn, cursor
 
 # Настройка страницы
-st.set_page_config(page_title="ХОЛОДМАШ | База клиентов", page_icon="??", layout="wide")
+st.set_page_config(page_title="ХОЛОДМАШ | База клиентов", page_icon="❄️", layout="wide")
 
 # Фирменный стиль Holodmash-Chiller (Скругления 12px)
 st.markdown("""
@@ -53,7 +53,7 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-st.title("?? ХОЛОДМАШ | Единая база клиентов")
+st.title("❄️ ХОЛОДМАШ | Единая база клиентов")
 st.caption("Профессиональный инструмент управления контрагентами по направлениям. Синхронизация 24/7.")
 
 try:
@@ -62,7 +62,7 @@ except Exception as e:
     st.error(f"Ошибка базы данных: {e}")
     st.stop()
 
-tab1, tab2 = st.tabs(["? Внести нового клиента", "?? Поиск по направлениям"])
+tab1, tab2 = st.tabs(["➕ Внести нового клиента", "🔍 Поиск по направлениям"])
 
 CATEGORIES = ["Спиральное оборудование", "Чиллеры", "Транспортеры", "Другое"]
 
@@ -71,20 +71,20 @@ with tab1:
     col1, col2 = st.columns(2)
     
     with col1:
-        fio = st.text_input("?? ФИО представителя", placeholder="Иванов Иван Иванович")
-        city = st.text_input("?? Город", placeholder="Москва")
-        company = st.text_input("?? Компания / Организация", placeholder="ООО Холодмаш-Чиллер")
-        email = st.text_input("?? Электронная почта (Email)", placeholder="info@holodmash-chiller.ru")
+        fio = st.text_input("👤 ФИО представителя", placeholder="Иванов Иван Иванович")
+        city = st.text_input("🌆 Город", placeholder="Москва")
+        company = st.text_input("🏢 Компания / Организация", placeholder="ООО Холодмаш-Чиллер")
+        email = st.text_input("✉️ Электронная почта (Email)", placeholder="info@holodmash-chiller.ru")
         
     with col2:
-        category = st.selectbox("?? Направление оборудования", options=CATEGORIES, index=1)
-        need = st.text_area("?? Потребность (ТЗ)", placeholder="Хладоноситель, мощность...")
-        notes = st.text_area("?? Важные рабочие заметки", placeholder="Комментарии...")
+        category = st.selectbox("⚙️ Направление оборудования", options=CATEGORIES, index=1)
+        need = st.text_area("🎯 Потребность (ТЗ)", placeholder="Хладоноситель, мощность...")
+        notes = st.text_area("📝 Важные рабочие заметки", placeholder="Комментарии...")
         
-        st.markdown("**?? Скриншот переписки (Ctrl+V или файл)**")
+        st.markdown("**📸 Скриншот переписки (Ctrl+V или файл)**")
         uploaded_file = st.file_uploader("", label_visibility="collapsed", type=["jpg", "jpeg", "png"])
 
-    if st.button("?? Сохранить в базу"):
+    if st.button("🚀 Сохранить в базу"):
         if not fio:
             st.error("Ошибка: Поле ФИО обязательно для заполнения!")
         else:
@@ -101,12 +101,12 @@ with tab1:
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (fio, city, company, email, need, notes, image_data_url, now_str, category))
             conn.commit()
-            st.success(f"?? Клиент '{fio}' успешно добавлен в направление '{category}'!")
+            st.success(f"✔️ Клиент '{fio}' успешно добавлен в направление '{category}'!")
 
 with tab2:
     st.subheader("Глобальный архив с фильтрацией")
-    search = st.text_input("?? Быстрый поиск (ФИО, Город или Компания)")
-    sub_tabs = st.tabs([f"?? {cat}" for cat in CATEGORIES])
+    search = st.text_input("🔎 Быстрый поиск (ФИО, Город или Компания)")
+    sub_tabs = st.tabs([f"📦 {cat}" for cat in CATEGORIES])
     
     for i, cat in enumerate(CATEGORIES):
         with sub_tabs[i]:
@@ -134,7 +134,7 @@ with tab2:
                 csv = df_excel.to_csv(index=False).encode('utf-8-sig')
                 
                 st.download_button(
-                    label=f"?? Скачать список '{cat}' в Excel",
+                    label=f"📥 Скачать список '{cat}' в Excel",
                     data=csv,
                     file_name=f"baza_{cat}.csv",
                     mime="text/csv",
@@ -143,22 +143,22 @@ with tab2:
                 st.markdown("---")
                 
                 for rec in records:
-                    with st.expander(f"?? {rec} | {rec} ({rec})"):
+                    with st.expander(f"📋 {rec} | {rec} ({rec})"):
                         c1, c2 = st.columns(2)
                         with c1:
-                            st.markdown(f"**?? Дата внесения:** {rec}")
-                            st.markdown(f"**?? Электронная почта:** {rec}")
-                            st.markdown(f"**?? Техническая потребность:**\n{rec}")
-                            st.markdown(f"**?? Рабочие заметки:**\n{rec}")
+                            st.markdown(f"**📅 Дата внесения:** {rec}")
+                            st.markdown(f"**✉️ Электронная почта:** {rec}")
+                            st.markdown(f"**🎯 Техническая потребность:**\n{rec}")
+                            st.markdown(f"**📝 Рабочие заметки:**\n{rec}")
                         with c2:
                             if isinstance(rec, str) and rec.startswith("data:image"):
-                                st.markdown("**?? Скриншот переписки:**")
+                                st.markdown("**📸 Скриншот переписки:**")
                                 try:
                                     st.image(rec, use_container_width=True)
                                 except Exception:
-                                    st.caption("?? Ошибка отображения скриншота")
+                                    st.caption("⚠️ Ошибка отображения скриншота")
                             else:
-                                st.caption("?? Скриншот отсутствует")
+                                st.caption("ℹ️ Скриншот отсутствует")
             else:
                 st.info(f"В направлении '{cat}' пока нет записей.")
 
