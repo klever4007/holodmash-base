@@ -1,26 +1,8 @@
 import os
-import sqlite3
 import base64
 from datetime import datetime
 import streamlit as st
-
-DB_FILE = "storage.db"
-
-def init_db():
-    conn = sqlite3.connect(DB_FILE, check_same_thread=False)
-    cursor = conn.cursor()
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS contacts (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            fio TEXT, city TEXT, company TEXT, email TEXT, need TEXT, notes TEXT, image_url TEXT, created_at TEXT, category TEXT
-        )
-    """)
-    try:
-        cursor.execute("ALTER TABLE contacts ADD COLUMN category TEXT")
-    except sqlite3.OperationalError:
-        pass
-    conn.commit()
-    return conn, cursor
+import pandas as pd
 
 # Настройка страницы
 st.set_page_config(page_title="ХОЛОДМАШ | База клиентов", page_icon="❄️", layout="wide")
@@ -56,10 +38,11 @@ st.markdown("""
 st.title("❄️ ХОЛОДМАШ | Единая база клиентов")
 st.caption("Профессиональный инструмент управления контрагентами по направлениям. Синхронизация 24/7.")
 
+# Подключение к облачной базе Supabase через Streamlit Secrets
 try:
-    conn, cursor = init_db()
+    conn = st.connection("postgres", type="sql")
 except Exception as e:
-    st.error(f"Ошибка базы данных: {e}")
+    st.error(f"Ошибка подключения к Supabase: {e}")
     st.stop()
 
 tab1, tab2 = st.tabs(["➕ Внести нового клиента", "🔍 Поиск по направлениям"])
@@ -96,11 +79,18 @@ with tab1:
                 image_data_url = f"data:{file_type};base64,{base64_str}"
 
             now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
-            cursor.execute("""
-                INSERT INTO contacts (fio, city, company, email, need, notes, image_url, created_at, category)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (fio, city, company, email, need, notes, image_data_url, now_str, category))
-            conn.commit()
+            
+            # Запись в Supabase (PostgreSQL использует синтаксис :имя_переменной)
+            with conn.session as session:
+                query = """
+                    INSERT INTO contacts (fio, city, company, email, need, notes, image_url, created_at, category)
+                    VALUES (:fio, :city, :company, :email, :need, :notes, :image_url, :created_at, :category)
+                """
+                session.execute(
+                    query, 
+                    dict(fio=fio, city=city, company=company, email=email, need=need, notes=notes, image_url=image_data_url, created_at=now_str, category=category)
+                )
+                session.commit()
             st.success(f"✔️ Клиент '{fio}' успешно добавлен в направление '{category}'!")
 
 with tab2:
@@ -110,27 +100,28 @@ with tab2:
     
     for i, cat in enumerate(CATEGORIES):
         with sub_tabs[i]:
+            # Поиск в Supabase
             if search:
-                cursor.execute("""
+                query = """
                     SELECT created_at, fio, city, company, email, need, notes, image_url 
                     FROM contacts 
-                    WHERE (category = ? OR (category IS NULL AND ? = 'Другое')) AND (fio LIKE ? OR city LIKE ? OR company LIKE ?)
+                    WHERE (category = :cat OR (category IS NULL AND :cat = 'Другое')) 
+                      AND (fio ILIKE :search OR city ILIKE :search OR company ILIKE :search)
                     ORDER BY id DESC LIMIT 1000
-                """, (cat, cat, f'%{search}%', f'%{search}%', f'%{search}%'))
+                """
+                df = conn.query(query, params=dict(cat=cat, search=f"%{search}%"))
             else:
-                cursor.execute("""
+                query = """
                     SELECT created_at, fio, city, company, email, need, notes, image_url 
                     FROM contacts 
-                    WHERE category = ? OR (category IS NULL AND ? = 'Другое')
+                    WHERE category = :cat OR (category IS NULL AND :cat = 'Другое')
                     ORDER BY id DESC LIMIT 500
-                """, (cat, cat))
-                
-            records = cursor.fetchall()
+                """
+                df = conn.query(query, params=dict(cat=cat))
             
-            if records:
-                import pandas as pd
-                df = pd.DataFrame(records, columns=["Дата", "ФИО", "Город", "Компания", "Email", "Потребность", "Заметки", "Картинка"])
-                df_excel = df.drop(columns=["Картинка"])
+            if not df.empty:
+                # Подготовка Excel версии (удаляем тяжелую графику)
+                df_excel = df.drop(columns=["image_url"], errors="ignore")
                 csv = df_excel.to_csv(index=False).encode('utf-8-sig')
                 
                 st.download_button(
@@ -142,24 +133,28 @@ with tab2:
                 )
                 st.markdown("---")
                 
-                for rec in records:
-                    with st.expander(f"📋 {rec} | {rec} ({rec})"):
+                # Построчный вывод карточек через итерацию DataFrame
+                for _, row in df.iterrows():
+                    c_fio = row.get('fio')
+                    c_company = row.get('company')
+                    c_city = row.get('city')
+                    
+                    with st.expander(f"📋 {c_fio or 'Без имени'} | {c_company or 'Без компании'} ({c_city or 'Город не указан'})"):
                         c1, c2 = st.columns(2)
                         with c1:
-                            st.markdown(f"**📅 Дата внесения:** {rec}")
-                            st.markdown(f"**✉️ Электронная почта:** {rec}")
-                            st.markdown(f"**🎯 Техническая потребность:**\n{rec}")
-                            st.markdown(f"**📝 Рабочие заметки:**\n{rec}")
+                            st.markdown(f"**📅 Дата внесения:** {row.get('created_at')}")
+                            st.markdown(f"**✉️ Электронная почта:** {row.get('email') or '—'}")
+                            st.markdown(f"**🎯 Техническая потребность:**\n{row.get('need') or '—'}")
+                            st.markdown(f"**📝 Рабочие заметки:**\n{row.get('notes') or '—'}")
                         with c2:
-                            if isinstance(rec, str) and rec.startswith("data:image"):
+                            c_image = row.get('image_url')
+                            if isinstance(c_image, str) and c_image.startswith("data:image"):
                                 st.markdown("**📸 Скриншот переписки:**")
                                 try:
-                                    st.image(rec, use_container_width=True)
+                                    st.image(c_image, use_container_width=True)
                                 except Exception:
                                     st.caption("⚠️ Ошибка отображения скриншота")
                             else:
                                 st.caption("ℹ️ Скриншот отсутствует")
             else:
                 st.info(f"В направлении '{cat}' пока нет записей.")
-
-conn.close()
