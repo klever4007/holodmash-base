@@ -5,10 +5,10 @@ from datetime import datetime
 import streamlit as st
 import pandas as pd
 
-# Настройка страницы
+# 1. НАСТРОЙКА СТРАНИЦЫ
 st.set_page_config(page_title="ХОЛОДМАШ | База клиентов", page_icon="❄️", layout="wide")
 
-# Фирменный стиль Holodmash-Chiller (Скругления 12px)
+# 2. ФИРМЕННЫЙ СТИЛЬ HOLODMASH-CHILLER (Скругления 12px)
 st.markdown("""
     <style>
     .stTextInput>div>div>input, .stTextArea>div>div>textarea, .stSelectbox>div>div {
@@ -39,11 +39,11 @@ st.markdown("""
 st.title("❄️ ХОЛОДМАШ | Единая база клиентов")
 st.caption("Профессиональный инструмент управления контрагентами по направлениям. Синхронизация 24/7.")
 
-# Подключение к Supabase через Secrets URI
+# 3. ПОДКЛЮЧЕНИЕ К ОБЛАЧНОЙ БАЗЕ SUPABASE
 @st.cache_resource
 def get_connection():
     try:
-        # Берём шифрованную строку из Advanced settings -> Secrets
+        # Автоматически считывает исправленный URI из Advanced settings -> Secrets
         conn_uri = st.secrets["postgres"]["uri"]
         return psycopg2.connect(conn_uri)
     except Exception as e:
@@ -52,13 +52,16 @@ def get_connection():
 
 conn = get_connection()
 
+# Если база не ответила, аварийно останавливаем работу интерфейса
 if conn is None:
     st.stop()
 
+# 4. СОЗДАНИЕ ВКЛАДОК И КАТЕГОРИЙ
 tab1, tab2 = st.tabs(["➕ Внести нового клиента", "🔍 Поиск по направлениям"])
 
 CATEGORIES = ["Спиральное оборудование", "Чиллеры", "Транспортеры", "Другое"]
 
+# ==================== ВКЛАДКА 1: ДОБАВЛЕНИЕ КЛИЕНТА ====================
 with tab1:
     st.subheader("Форма добавления")
     col1, col2 = st.columns(2)
@@ -103,6 +106,7 @@ with tab1:
                 st.error(f"Ошибка при сохранении: {e}")
                 conn.rollback()
 
+# ==================== ВКЛАДКА 2: ПОИСК И АРХИВ ====================
 with tab2:
     st.subheader("Глобальный архив с фильтрацией")
     search = st.text_input("🔎 Быстрый поиск (ФИО, Город или Компания)")
@@ -112,6 +116,7 @@ with tab2:
         with sub_tabs[i]:
             try:
                 with conn.cursor() as cursor:
+                    # Если пользователь использует строку поиска
                     if search:
                         query = """
                             SELECT created_at, fio, city, company, email, need, notes, image_url 
@@ -122,6 +127,7 @@ with tab2:
                         """
                         search_param = f"%{search}%"
                         cursor.execute(query, (cat, cat, search_param, search_param, search_param))
+                    # Если поиск пустой — выгружаем последние записи категории
                     else:
                         query = """
                             SELECT created_at, fio, city, company, email, need, notes, image_url 
@@ -133,7 +139,9 @@ with tab2:
                     
                     records = cursor.fetchall()
                 
+                # Если в этой вкладке есть данные
                 if records:
+                    # Формируем Excel/CSV отчет
                     df = pd.DataFrame(records, columns=["Дата", "ФИО", "Город", "Компания", "Email", "Потребность", "Заметки", "Картинка"])
                     df_excel = df.drop(columns=["Картинка"], errors="ignore")
                     csv = df_excel.to_csv(index=False).encode('utf-8-sig')
@@ -147,6 +155,7 @@ with tab2:
                     )
                     st.markdown("---")
                     
+                    # Разворачиваем карточки клиентов на экране
                     for rec in records:
                         c_date, c_fio, c_city, c_company, c_email, c_need, c_notes, c_image = rec
                         
