@@ -142,24 +142,29 @@ with tab2:
                 )
                 st.markdown("---")
                 
-                for rec in records:
-                    with st.expander(f"📋 {rec} | {rec} ({rec})"):
+                               for rec in records:
+                    # Распаковываем системный кортеж на отдельные понятные переменные
+                    rec_date, rec_fio, rec_city, rec_company, rec_email, rec_need, rec_notes, rec_image = rec
+                    
+                    # Формируем красивую главную строку спойлера
+                    title_text = f"📋 {rec_fio or 'Без имени'} | {rec_company or 'Без компании'} ({rec_city or 'Город не указан'})"
+                    
+                    with st.expander(title_text):
                         c1, c2 = st.columns(2)
                         with c1:
-                            st.markdown(f"**📅 Дата внесения:** {rec}")
-                            st.markdown(f"**✉️ Электронная почта:** {rec}")
-                            st.markdown(f"**🎯 Техническая потребность:**\n{rec}")
-                            st.markdown(f"**📝 Рабочие заметки:**\n{rec}")
+                            st.markdown(f"**📅 Дата внесения:** {rec_date}")
+                            st.markdown(f"**✉️ Электронная почта:** {rec_email or '—'}")
+                            st.markdown(f"**🎯 Техническая потребность:**\n{rec_need or '—'}")
+                            st.markdown(f"**📝 Рабочие заметки:**\n{rec_notes or '—'}")
                         with c2:
-                            if isinstance(rec, str) and rec.startswith("data:image"):
+                            if isinstance(rec_image, str) and rec_image.startswith("data:image"):
                                 st.markdown("**📸 Скриншот переписки:**")
                                 try:
-                                    st.image(rec, use_container_width=True)
+                                    st.image(rec_image, use_container_width=True)
                                 except Exception:
                                     st.caption("⚠️ Ошибка отображения скриншота")
                             else:
                                 st.caption("ℹ️ Скриншот отсутствует")
-            else:
-                st.info(f"В направлении '{cat}' пока нет записей.")
+
 
 conn.close()
