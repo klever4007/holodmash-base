@@ -1,123 +1,160 @@
-﻿import os
-import sqlite3
+import os
+import psycopg2
 from datetime import datetime
 import streamlit as st
-from PIL import Image
 
-DB_FILE = "storage.db"
-PHOTO_DIR = "photos"
+# Получаем строку подключения из настроек безопасности облака
+DB_URI = st.secrets["postgres"]["uri"]
 
 def init_db():
-    conn = sqlite3.connect(DB_FILE)
+    conn = psycopg2.connect(DB_URI)
     cursor = conn.cursor()
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS contacts (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            fio TEXT, city TEXT, company TEXT, email TEXT, need TEXT, notes TEXT, image_note TEXT, created_at TEXT
+            id SERIAL PRIMARY KEY,
+            fio TEXT, city TEXT, company TEXT, email TEXT, need TEXT, notes TEXT, image_url TEXT, created_at TEXT
         )
     """)
-    cursor.execute("CREATE INDEX IF NOT EXISTS idx_fio ON contacts(fio);")
     conn.commit()
-    return conn
+    return conn, cursor
 
-# Фирменный стиль в цветах Holodmash-Chiller (Глубокий синий, стальной, закругления углов)
-st.set_page_config(page_title="Холодмаш | Блокнот База", page_icon="??", layout="wide")
+# Настройка страницы с правильной кодировкой
+st.set_page_config(page_title="ХОЛОДМАШ | База клиентов", page_icon="❄️", layout="wide")
 
+# Фирменный стиль Holodmash-Chiller (Скругления 12px, адаптивность, статус-бары)
 st.markdown("""
     <style>
-    /* Главный фон и скругления для полей ввода */
+    /* Закругление краев для полей ввода */
     .stTextInput>div>div>input, .stTextArea>div>div>textarea {
-        border-radius: 8px !important;
-        border: 1px solid #1E3A8A !important;
+        border-radius: 12px !important;
+        border: 1px solid #0056B3 !important;
+        background-color: #FAFAFA !important;
     }
-    /* Стиль кнопок */
+    /* Стиль главной кнопки */
     .stButton>button {
-        background-color: #1E3A8A !important;
+        background-color: #0056B3 !important;
         color: white !important;
-        border-radius: 8px !important;
+        border-radius: 12px !important;
         border: none !important;
         font-weight: bold !important;
-        padding: 0.5rem 2rem !important;
+        width: 100%;
+        padding: 0.75rem !important;
+        transition: 0.3s;
     }
     .stButton>button:hover {
-        background-color: #3B82F6 !important;
+        background-color: #003D82 !important;
+        box-shadow: 0px 4px 10px rgba(0, 86, 179, 0.3);
     }
-    /* Стиль карточек */
-    .css-1r6g72h, .stExpander {
-        border-radius: 8px !important;
+    /* Аккуратные карточки клиентов */
+    div[data-testid="stExpander"] {
+        border-radius: 12px !important;
         border: 1px solid #E2E8F0 !important;
+        background-color: #FFFFFF !important;
+        box-shadow: 0px 2px 5px rgba(0,0,0,0.02);
     }
     </style>
 """, unsafe_allow_html=True)
 
-st.title("?? ХОЛОДМАШ | База Данных Клиентов")
-st.caption("Профессиональный блокнот-инструмент для управления записями")
+st.title("❄️ ХОЛОДМАШ | Единая база клиентов")
+st.caption("Профессиональный инструмент управления контрагентами. Синхронизация 24/7.")
 
-conn = init_db()
-cursor = conn.cursor()
+try:
+    conn, cursor = init_db()
+except Exception as e:
+    st.error(f"Ошибка подключения к базе данных Supabase: {e}")
+    st.stop()
 
-tab1, tab2 = st.tabs(["? Добавить запись", "?? Быстрый просмотр"])
+tab1, tab2 = st.tabs(["➕ Внести нового клиента", "🔍 Поиск и Выгрузка базы"])
 
 with tab1:
-    st.subheader("Внесение нового контрагента")
+    st.subheader("Форма добавления")
     col1, col2 = st.columns(2)
     
     with col1:
-        fio = st.text_input("ФИО представителя", placeholder="Иванов Иван Иванович")
-        city = st.text_input("Город", placeholder="Москва")
-        company = st.text_input("Компания / Организация", placeholder="ООО Холодмаш-Чиллер")
-        email = st.text_input("Электронная почта (Email)", placeholder="info@holodmash-chiller.ru")
+        fio = st.text_input("👤 ФИО представителя", placeholder="Иванов Иван Иванович")
+        city = st.text_input("🌆 Город", placeholder="Москва")
+        company = st.text_input("🏢 Компания / Организация", placeholder="ООО Холодмаш-Чиллер")
+        email = st.text_input("✉️ Электронная почта (Email)", placeholder="info@holodmash-chiller.ru")
         
     with col2:
-        need = st.text_area("Потребность / Проект чиллера", placeholder="Технические характеристики, хладоноситель...")
-        notes = st.text_area("Рабочие заметки", placeholder="Важные комментарии по сделке...")
-        uploaded_file = st.file_uploader("Скриншот переписки (JPEG / PNG)", type=["jpg", "jpeg", "png"])
+        need = st.text_area("🎯 Потребность (какой чиллер нужен / ТЗ)", placeholder="Хладоноситель, мощность, условия работы...")
+        notes = st.text_area("📝 Важные рабочие заметки", placeholder="Договорились созвониться в пятницу...")
+        
+        # ФИЧА: Вставка скриншота через Ctrl+V или файл
+        st.markdown("**📸 Скриншот переписки (Ctrl+V или файл)**")
+        uploaded_file = st.image_uploader("", label_visibility="collapsed")
 
-    if st.button("Сохранить в базу"):
+    if st.button("🚀 Сохранить в облачную базу"):
         if not fio:
-            st.error("Пожалуйста, заполните поле ФИО.")
+            st.error("Ошибка: Поле ФИО обязательно для заполнения!")
         else:
-            img_note = "Фото отсутствует"
+            image_data_url = "-"
+            
+            # Если юзер вставил картинку (через Ctrl+V или загрузил файл)
             if uploaded_file is not None:
-                if not os.path.exists(PHOTO_DIR): os.makedirs(PHOTO_DIR)
-                ext = os.path.splitext(uploaded_file.name)[1]
-                filename = f"chat_{int(datetime.now().timestamp())}{ext}"
-                img_dest = os.path.join(PHOTO_DIR, filename)
-                
-                image = Image.open(uploaded_file)
-                image.save(img_dest)
-                img_note = img_dest
+                import base64
+                # Переводим картинку в текст, чтобы она вечно хранилась прямо в базе данных без внешних дисков!
+                bytes_data = uploaded_file.getvalue()
+                base64_str = base64.b64encode(bytes_data).decode("utf-8")
+                file_type = uploaded_file.type if hasattr(uploaded_file, 'type') else "image/png"
+                image_data_url = f"data:{file_type};base64,{base64_str}"
 
             now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
             cursor.execute("""
-                INSERT INTO contacts (fio, city, company, email, need, notes, image_note, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            """, (fio, city, company, email, need, notes, img_note, now_str))
+                INSERT INTO contacts (fio, city, company, email, need, notes, image_url, created_at)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+            """, (fio, city, company, email, need, notes, image_data_url, now_str))
             conn.commit()
-            st.success(f"?? Запись для {fio} успешно добавлена в систему.")
+            st.success(f"✔️ Клиент '{fio}' успешно добавлен! Обновите вкладку поиска.")
 
 with tab2:
-    st.subheader("Поиск по архиву")
-    search = st.text_input("?? Введите имя, город или компанию для фильтрации")
+    st.subheader("Глобальный архив")
+    search = st.text_input("🔎 Быстрый фильтр по ФИО, Городу или Названию компании")
     
+    # Запрос данных
     if search:
-        cursor.execute("SELECT created_at, fio, city, company, email, need, notes, image_note FROM contacts WHERE fio LIKE ? OR city LIKE ? OR company LIKE ? ORDER BY id DESC LIMIT 1000", (f'%{search}%', f'%{search}%', f'%{search}%'))
+        cursor.execute("""
+            SELECT created_at, fio, city, company, email, need, notes, image_url 
+            FROM contacts 
+            WHERE fio ILIKE %s OR city ILIKE %s OR company ILIKE %s 
+            ORDER BY id DESC LIMIT 1000
+        """, (f'%{search}%', f'%{search}%', f'%{search}%'))
     else:
-        cursor.execute("SELECT created_at, fio, city, company, email, need, notes, image_note FROM contacts ORDER BY id DESC LIMIT 100")
+        cursor.execute("SELECT created_at, fio, city, company, email, need, notes, image_url FROM contacts ORDER BY id DESC LIMIT 100")
         
     records = cursor.fetchall()
     
+    # ФИЧА: Кнопка выгрузки в Excel/CSV для чилла
+    if records:
+        import pandas as pd
+        df = pd.DataFrame(records, columns=["Дата", "ФИО", "Город", "Компания", "Email", "Потребность", "Заметки", "Картинка"])
+        # Убираем огромный код картинки из файла эксель, чтобы он весил мало
+        df_excel = df.drop(columns=["Картинка"])
+        csv = df_excel.to_csv(index=False).encode('utf-8-sig')
+        
+        st.download_button(
+            label="📥 Скачать текущую таблицу в Excel (CSV)",
+            data=csv,
+            file_name=f"baza_holodmash_{datetime.now().strftime('%Y%m%d')}.csv",
+            mime="text/csv"
+        )
+        st.markdown("---")
+
+    # Вывод карточек
     for rec in records:
-        with st.expander(f"?? {rec[1]} | {rec[3]} ({rec[2]})"):
-            c1, c2 = st.columns(2)
+        with st.expander(f"📋 {rec[1]} | {rec[3]} ({rec[2]})"):
+            c1, c2 = st.columns([3, 2])
             with c1:
-                st.markdown(f"**Дата внесения:** {rec[0]}")
-                st.markdown(f"**Почта:** {rec[4]}")
-                st.markdown(f"**Потребность:** {rec[5]}")
-                st.markdown(f"**Заметки:** {rec[6]}")
+                st.markdown(f"**📅 Дата внесения:** {rec[0]}")
+                st.markdown(f"**✉️ Электронная почта:** {rec[4]}")
+                st.markdown(f"**🎯 Техническая потребность:**\n{rec[5]}")
+                st.markdown(f"**📝 Рабочие заметки:**\n{rec[6]}")
             with c2:
-                if rec[7] != "Фото отсутствует" and os.path.exists(rec[7]):
-                    st.image(rec[7], caption="Скриншот истории переписки", use_container_width=True)
+                if rec[7] and rec[7] != "-":
+                    st.markdown("**📸 Скриншот переписки:**")
+                    st.image(rec[7], use_container_width=True)
                 else:
-                    st.caption("?? Изображение к данной записи не прикреплено")
+                    st.caption("ℹ️ Скриншот не прикреплялся")
+
+cursor.close()
 conn.close()
