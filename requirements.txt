@@ -1,3 +1,4 @@
 streamlit
 pandas
-st-postgresql
+psycopg2-binary
+
